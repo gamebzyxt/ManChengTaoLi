@@ -10,20 +10,12 @@
     ],
     "字体最大值": 25,
     "字体最小值": 13,
-<<<<<<< HEAD
-    "字体尺寸": 22,
-=======
     "字体尺寸": 20,
->>>>>>> 9210420 (更新 ManChengTaoLi 1.0.1 本地文件)
     "快进秒数": 5,
     "快退秒数": 5,
     "加音量数": 2,
     "减音量数": 2,
-<<<<<<< HEAD
-    "字体": "./Font/simfang.ttf",
-=======
     "字体": "E:/Resource/Font/simfang.ttf",
->>>>>>> 9210420 (更新 ManChengTaoLi 1.0.1 本地文件)
     "视频过滤器": "MP4 (*.mp4);;AVI (*.avi);;MKV (*.mkv);;MOV (*.mov)",
     "可识别格式": [
         ".mp4",
@@ -32,13 +24,8 @@
         ".mov"
     ],
     "字体过滤器": "Font (*.ttf *.otf *.ttc);; All (*)",
-<<<<<<< HEAD
-    "上次视频选择路径": "E:/Resource/Videos",
-    "上次字体选择路径": "E:/Resource/Font/",
-=======
     "上次视频选择路径": "E:/Resource/Video",
     "上次字体选择路径": "E:/Resource/Font",
->>>>>>> 9210420 (更新 ManChengTaoLi 1.0.1 本地文件)
     "默认截图保存路径": "./Images/Screenshot/",
     "右键菜单栏删除图标": "./Images/delete.png",
     "截图按钮图标": "./Images/camera.png",
@@ -68,14 +55,10 @@
     "播放列表地址": null,
     "表格页地址": null,
     "定时器地址": null,
-<<<<<<< HEAD
-    "简介框架地址": null
-=======
     "简介框架地址": null,
     "当前字体系列": "FangSong",
     "当前字号": 20,
     "启用自定义背景图片": true,
-    "背景图片路径": "E:/Resource/Images/Athletes/邵雨琪_2.png",
+    "背景图片路径": "E:/Resource/Images/Athletes/2.png",
     "背景图片不透明度": 10
->>>>>>> 9210420 (更新 ManChengTaoLi 1.0.1 本地文件)
 }
