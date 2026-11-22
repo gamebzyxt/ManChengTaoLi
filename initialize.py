@@ -1,14 +1,12 @@
 import os
-import sys
 import json
 import hashlib
 import threading
 import logging
 from datetime import datetime
-from PyQt5.QtCore import QUrl, QTimer
-from PyQt5.QtGui import QFont, QFontDatabase, QIcon
-from PyQt5.QtMultimedia import QMediaContent
-from PyQt5.QtWidgets import QListWidget, QListWidgetItem, QWidget, QMessageBox
+from PySide6.QtCore import QUrl, QTimer
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget
 
 
 # 获取运行目录 -> 当将程序打包成.exe文件并添加到系统环境变量时，获取绝对路径以便找不到路径而报错
@@ -45,7 +43,7 @@ try:
 except Exception as e:
     logger.error(f"配置文件读取失败: {e}")
     configure_data = {
-        "程序名称": "漫城桃李播放器",
+        "程序名称": "满城桃李",
         "窗口初始大小": [1000, 1000],
         "程序图标": "",
         "字体": "",
@@ -59,8 +57,29 @@ except Exception as e:
         "上次视频选择路径": os.path.expanduser("~"),
         "默认截图保存路径": "./Images/Screenshot/",
         "名言名句": "历史的发展是不以人的意志为转移的。 --毛泽东--",
-        "右键菜单栏删除图标": ""
+        "右键菜单栏删除图标": "",
+        "启用自定义背景图片": False,
+        "背景图片路径": "",
+        "背景图片不透明度": 50
     }
+
+# 配置文件必须包含的键及其默认值：缺失时补写回磁盘，避免后续版本新增字段被旧配置吞掉
+_REQUIRED_DEFAULT: dict = {
+    "启用自定义背景图片": False,
+    "背景图片路径": "",
+    "背景图片不透明度": 50
+}
+_missing: list = [k for k in _REQUIRED_DEFAULT if k not in configure_data]
+if _missing:
+    for _k in _missing:
+        configure_data[_k] = _REQUIRED_DEFAULT[_k]
+    try:
+        _config_path = os.path.join(Run_Directory, 'Configure/program.json')
+        with open(_config_path, 'w', encoding='utf-8') as _fp:
+            json.dump(configure_data, _fp, indent=4, ensure_ascii=False)
+        logger.warning(f"配置文件缺少键 {_missing}，已补写默认值")
+    except Exception as e:
+        logger.error(f"补写配置文件失败: {e}")
 
 # 获取视频序列
 try:
@@ -244,19 +263,6 @@ def play_video_inside(list_widget: QListWidget, item: QListWidgetItem, index_wid
         # 判断文件存不存在
         if not os.path.exists(item[1]):
             logger.warning(f"视频文件不存在，从列表中删除: {item[1]}")
-            # 弹出提示弹窗
-            try:
-                box = QMessageBox()
-                box.setWindowTitle(configure_data.get("程序名称", "满城桃李"))
-                box.setText(f"视频文件已不存在:\n{item[0]}")
-                box.setIcon(QMessageBox.Warning)
-                # 设置窗口图标为程序图标
-                icon_path = os.path.join(Run_Directory, configure_data.get("程序图标", ""))
-                if os.path.exists(icon_path):
-                    box.setWindowIcon(QIcon(icon_path))
-                box.exec_()
-            except Exception as e:
-                logger.error(f"显示弹窗失败: {e}")
             # 删除item
             pop_item(list_widget, item)
             return
@@ -270,7 +276,7 @@ def play_video_inside(list_widget: QListWidget, item: QListWidgetItem, index_wid
         playlist: object = configure_data["播放列表地址"]
         # 清除视频列表 -> 防止重复播放之前的视频
         playlist.clear()
-        content: QMediaContent = QMediaContent(QUrl.fromLocalFile(item[1]))
+        content: QUrl = QUrl.fromLocalFile(item[1])
         playlist.add_media(content)
         playlist.play()
         logger.info(f"视频播放中: {item[1]}")
@@ -283,41 +289,61 @@ def play_video_inside(list_widget: QListWidget, item: QListWidgetItem, index_wid
         logger.error(f"播放视频（内部）失败: {e}")
 
 
+def _apply_font_to_all(font: QFont) -> None:
+    """把一个已含字体族与字号的 QFont 应用到主窗口及其所有后代控件。
+
+    时长标签（keep_mono_font）保持自己的等宽字体，只按新字号重算宽度。
+    """
+    man_cheng_tao_li_address: QWidget = configure_data["主程序窗口地址"]
+    if not man_cheng_tao_li_address:
+        return
+    man_cheng_tao_li_address.setFont(font)
+    for widget in man_cheng_tao_li_address.findChildren(QWidget):
+        if getattr(widget, "keep_mono_font", False):
+            try:
+                widget.refresh_time_width()
+            except Exception:
+                pass
+            continue
+        try:
+            widget.setFont(font)
+        except Exception:
+            pass
+
+
 def set_font(font_path: str) -> None:
     """
     设置主程序窗口及其子类字体。
+
+    只替换字体族，字号沿用当前配置里的"字体尺寸"，
+    避免设置字体后字号被重置成默认值。
+
     :param font_path: 字体路径。
     """
     try:
-        # 获取主程序窗口类
         man_cheng_tao_li_address: QWidget = configure_data["主程序窗口地址"]
         if not man_cheng_tao_li_address:
             return
-        
-        # 加载字体并设置字体
+
         font_id = QFontDatabase.addApplicationFont(font_path)
-        if font_id != -1:
-            font_families = QFontDatabase.applicationFontFamilies(font_id)
-            if font_families:
-                current_font: QFont = QFont(font_families[0])
-                # 主程序子类列表
-                man_cheng_tao_li_children_address: list = man_cheng_tao_li_address.children()
-                # 创建下标 -> 用于判断是否设置完成
-                index: int = 0
-                # 将所以子类添加到子类列表中
-                while index < len(man_cheng_tao_li_children_address):
-                    # 再次循环得到子类
-                    for widget in man_cheng_tao_li_children_address[index].children():
-                        try:
-                            # 尝试设置字体 -> 有些控件无设置字体方法
-                            widget.setFont(current_font)
-                        except:
-                            pass
-                        # 将子类添加到列表 -> 循环全部子类
-                        man_cheng_tao_li_children_address.append(widget)
-                    # 下标+1
-                    index += 1
-                logger.info(f"字体设置成功: {font_path}")
+        if font_id == -1:
+            logger.error(f"字体加载失败: {font_path}")
+            return
+        font_families = QFontDatabase.applicationFontFamilies(font_id)
+        if not font_families:
+            logger.error(f"字体文件内没有可用字体族: {font_path}")
+            return
+
+        # 记录当前使用的字体族，供 set_size 复用
+        configure_data["当前字体系列"] = font_families[0]
+        # 基于当前字号构造字体，保持字号不变：
+        # 优先用最近一次 set_size 设定的字号（当前字号），
+        # 没有时回退到配置里的"字体尺寸"，避免设置字体后字号被重置成默认值。
+        size = configure_data.get("当前字号") or configure_data.get("字体尺寸", 18)
+        current_font: QFont = QFont(font_families[0])
+        current_font.setPixelSize(int(size))
+        _apply_font_to_all(current_font)
+        logger.info(f"字体设置成功: {font_path} -> {font_families[0]} {int(size)}px")
     except Exception as e:
         logger.error(f"设置字体失败: {e}")
 
@@ -325,28 +351,30 @@ def set_font(font_path: str) -> None:
 def set_size(font_size: str) -> None:
     """
     设置主程序窗口及其子类字体尺寸。
+
+    关键点：必须基于"用户选择的字体族"来改字号。
+    之前用 widget.font() 取控件当前字体再 setPixelSize，
+    而控件当前字体往往已经是系统默认字体（或被 QSS 影响），
+    于是每次拖滑块都会把用户选好的字体冲掉、退回系统默认。
+
     :param font_size: 字体尺寸。
     """
     try:
-        # 获取主程序窗口类
         man_cheng_tao_li_address: QWidget = configure_data["主程序窗口地址"]
         if not man_cheng_tao_li_address:
             return
-        
-        # 使用 QFont 设置字体大小（不会覆盖样式表）
-        font = man_cheng_tao_li_address.font()
-        font.setPixelSize(int(font_size))
-        man_cheng_tao_li_address.setFont(font)
-        
-        # 遍历所有子控件并设置字体大小
-        for widget in man_cheng_tao_li_address.findChildren(QWidget):
-            try:
-                widget_font = widget.font()
-                widget_font.setPixelSize(int(font_size))
-                widget.setFont(widget_font)
-            except:
-                pass
-        logger.info(f"字体尺寸设置成功: {font_size}px")
+
+        size = int(font_size)
+        family = configure_data.get("当前字体系列")
+        if not family:
+            # 还没选过自定义字体（或本次启动未加载），则沿用主窗口当前字体族
+            family = man_cheng_tao_li_address.font().family()
+        font = QFont(family)
+        font.setPixelSize(size)
+        _apply_font_to_all(font)
+        # 字号也要记下来，下次 set_font 才能保持
+        configure_data["当前字号"] = size
+        logger.info(f"字体尺寸设置成功: {family} {size}px")
     except Exception as e:
         logger.error(f"设置字体尺寸失败: {e}")
 
@@ -369,7 +397,7 @@ def play_video_external(item: QListWidgetItem, index_widget: QWidget) -> None:
         playlist: object = configure_data["播放列表地址"]
         # 清除视频列表 -> 防止重复播放之前的视频
         playlist.clear()
-        content: QMediaContent = QMediaContent(QUrl.fromLocalFile(item[1]))
+        content: QUrl = QUrl.fromLocalFile(item[1])
         playlist.add_media(content)
         playlist.play()
         logger.info(f"外部视频播放中: {item[1]}")

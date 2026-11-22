@@ -1,6 +1,6 @@
-from PyQt5.QtCore import QThread, QObject
-from PyQt5.QtGui import QContextMenuEvent, QIcon
-from PyQt5.QtWidgets import QFileDialog, QTabWidget, QMenu, QAction
+from PySide6.QtCore import QThread, QObject
+from PySide6.QtGui import QContextMenuEvent, QIcon, QAction
+from PySide6.QtWidgets import QFileDialog, QTabWidget, QMenu
 from initialize import *
 
 
@@ -29,22 +29,10 @@ class FileHash(QThread):
         # 动态添加item
         for item, index in zip(self.files, range(len(self.files))):
             try:
-                # 检查文件是否存在
-                if not os.path.exists(item[1]):
-                    logger.warning(f"视频文件不存在，从列表中移除: {item[1]}")
-                    # 从序列中删除
-                    try:
-                        sequence.pop(index - illegal_number)
-                        illegal_number += 1
-                    except Exception as e:
-                        logger.error(f"从序列中删除文件失败: {e}")
-                    continue
-
-                # 尝试哈希 -> 文件可能不存在
+                # 尝试哈希 -> 文件可能不存在，需要try
                 hash_str: str = fingerprint(item[1])
                 if not hash_str:
                     logger.warning(f"视频文件无效，跳过: {item[1]}")
-                    continue
                 # 判断文件是否有重复
                 if hash_str in video_hash:
                     continue
@@ -148,5 +136,5 @@ class VideoList(QListWidget):
             # 添加动作
             menu.addAction(delete_action)
             # 进入菜单栏事件循环，并设置鼠标右击时的全局坐标为菜单栏位置
-            menu.exec_(event.globalPos())
+            menu.exec(event.globalPos())
 

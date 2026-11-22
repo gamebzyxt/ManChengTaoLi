@@ -1,6 +1,7 @@
-from PyQt5.QtCore import QObject, Qt
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import QSlider, QFrame, QFormLayout, QLabel, QPushButton, QFileDialog, QLineEdit, QHBoxLayout, QSpinBox
+from PySide6.QtCore import QObject, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QSlider, QFrame, QFormLayout, QLabel, QPushButton, QFileDialog, QLineEdit, QHBoxLayout, \
+    QSpinBox, QCheckBox, QVBoxLayout, QWidget, QToolButton
 from initialize import *
 
 
@@ -20,6 +21,9 @@ class Slider(QSlider):
         # 设置字体尺寸
         set_size(str(self.value()))
         logger.info(f"字体尺寸修改: {old_value} -> {self.value()}")
+        # 必须调用父类实现：QSlider 在这里清理内部的拖拽状态，
+        # 不调用会导致松手后拖动状态残留，鼠标一移动滑块就继续跟着跑。
+        super().mouseReleaseEvent(event)
 
 
 # 设置框架
@@ -126,7 +130,7 @@ class SettingFrame(QFrame):
         background_creation_text.setWordWrap(True)
         # 设置字体尺寸标签
         size_label = QLabel("字体尺寸: ", self)
-        size_slider: Slider = Slider(Qt.Horizontal)
+        size_slider: Slider = Slider(Qt.Orientation.Horizontal)
         # 默认值
         size_slider.setValue(configure_data["字体尺寸"])
         # 最小值
@@ -175,6 +179,61 @@ class SettingFrame(QFrame):
         screenshot_row.setContentsMargins(0, 0, 0, 0)
         screenshot_row.addWidget(self.screenshot_path_edit)
         screenshot_row.addWidget(screenshot_button)
+
+        # ---------------- 自定义背景图片（可折叠分组） ----------------
+        # 标题行：复选框本身既是"启用开关"，也是"展开/收起"按钮
+        self.background_check = QCheckBox("启用自定义背景图片", self)
+        self.background_check.setChecked(bool(configure_data.get("启用自定义背景图片", False)))
+        self.background_check.toggled.connect(self.toggle_background)
+        # 展开箭头
+        self.background_arrow = QToolButton(self)
+        self.background_arrow.setObjectName("backgroundArrow")
+        self.background_arrow.setAutoRaise(True)
+        self.background_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.background_arrow.setToolTip("展开/收起")
+        self.background_arrow.clicked.connect(self.toggle_background_panel)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(4)
+        header_row.addWidget(self.background_arrow)
+        header_row.addWidget(self.background_check)
+        header_row.addStretch(1)
+
+        # 背景图片路径（只读显示，通过按钮选择）
+        self.background_path_edit = QLineEdit(self)
+        self.background_path_edit.setReadOnly(True)
+        self._refresh_background_path()
+        self.background_button = QPushButton("选择图片", self)
+        self.background_button.clicked.connect(self.choose_background_image)
+        background_row = QHBoxLayout()
+        background_row.setContentsMargins(0, 0, 0, 0)
+        background_row.addWidget(self.background_path_edit)
+        background_row.addWidget(self.background_button)
+        # 不透明度滑块（0-100）
+        self.background_opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.background_opacity_slider.setRange(0, 100)
+        self.background_opacity_slider.setSingleStep(1)
+        self.background_opacity_slider.setValue(int(configure_data.get("背景图片不透明度", 50)))
+        self.background_opacity_slider.setToolTip(str(self.background_opacity_slider.value()))
+        self.background_opacity_slider.valueChanged.connect(self.change_background_opacity)
+
+        # 箭头按钮不抢焦点
+        self.background_arrow.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        # 子项容器：缩进显示在标题下方，整体可折叠
+        self.background_body = QWidget(self)
+        body_form = QFormLayout(self.background_body)
+        body_form.setContentsMargins(24, 2, 0, 2)
+        body_form.setSpacing(6)
+        body_form.addRow(QLabel("背景图片: ", self.background_body), background_row)
+        body_form.addRow(QLabel("不透明度: ", self.background_body), self.background_opacity_slider)
+
+        # 初始状态：由是否启用决定是否展开，以及子项是否可编辑
+        self._apply_background_enabled(self.background_check.isChecked())
+        self._background_panel_open = self.background_check.isChecked()
+        self.background_body.setVisible(self._background_panel_open)
+        self._update_background_arrow()
+
         # 向布局管理器添加控件
         form_layout.addRow(version_label, version_number)
         form_layout.addRow(author_label, author_text)
@@ -188,9 +247,23 @@ class SettingFrame(QFrame):
         form_layout.addRow(QLabel("加音量数: ", self), volume_up_spin)
         form_layout.addRow(QLabel("减音量数: ", self), volume_down_spin)
         form_layout.addRow(screenshot_label, screenshot_row)
+        # 分组标题占满整行，子项紧随其后
+        form_layout.addRow(header_row)
+        form_layout.addRow(self.background_body)
 
-        # 启用布局管理器
-        self.setLayout(form_layout)
+        # 底部快捷键提示（小号浅色字，不抢视觉）
+        shortcut_label = QLabel(self._shortcut_text(), self)
+        shortcut_label.setWordWrap(True)
+        shortcut_label.setObjectName("shortcutHint")
+        shortcut_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        shortcut_label.setStyleSheet(
+            "color: #5a6b7a; background: transparent; font-size: 11px;"
+        )
+        self.setLayout(QVBoxLayout(self))
+        self.layout().setContentsMargins(9, 9, 9, 9)
+        self.layout().addLayout(form_layout)
+        self.layout().addStretch(1)
+        self.layout().addWidget(shortcut_label)
 
     # 应用座右铭（点击确定才生效）
     def apply_motto(self) -> None:
@@ -259,3 +332,91 @@ class SettingFrame(QFrame):
         else:
             logger.info("用户取消了字体选择")
 
+    # ---------------- 自定义背景图片 ----------------
+    def _shortcut_text(self) -> str:
+        """底部快捷键说明文本。"""
+        return (
+            "快捷键\n"
+            "← / → 快退 / 快进\n"
+            "↑ / ↓ 音量加减\n"
+            "空格 播放 / 暂停\n"
+            "M 添加坐标\n"
+            "S 保存索引"
+        )
+
+    # 启用/禁用背景图片相关控件
+    def _apply_background_enabled(self, enabled: bool) -> None:
+        self.background_path_edit.setEnabled(enabled)
+        self.background_button.setEnabled(enabled)
+        self.background_opacity_slider.setEnabled(enabled)
+
+    # 刷新背景图片路径显示（过长则省略）
+    def _refresh_background_path(self) -> None:
+        path = configure_data.get("背景图片路径", "")
+        self.background_path_edit.setToolTip(path)
+        fm = self.background_path_edit.fontMetrics()
+        max_width = 280
+        if fm.horizontalAdvance(path) > max_width:
+            self.background_path_edit.setText(fm.elidedText(path, Qt.ElideMiddle, max_width))
+        else:
+            self.background_path_edit.setText(path)
+
+    # 通知播放器刷新空闲背景 (仅在未播放视频时生效)
+    def _refresh_player_background(self) -> None:
+        player = configure_data.get("播放器地址")
+        if player is not None and hasattr(player, "refresh_background"):
+            try:
+                player.refresh_background()
+            except Exception as e:
+                logger.error(f"刷新背景失败: {e}")
+
+    # 展开/收起背景图片子项
+    def toggle_background_panel(self) -> None:
+        self._background_panel_open = not self._background_panel_open
+        self.background_body.setVisible(self._background_panel_open)
+        self._update_background_arrow()
+        logger.info(f"背景图片面板: {'展开' if self._background_panel_open else '收起'}")
+
+    # 根据面板状态更新箭头方向：收起为 ▶，展开为 ▼
+    def _update_background_arrow(self) -> None:
+        opened = self._background_panel_open
+        self.background_arrow.setText("▼" if opened else "▶")
+        self.background_arrow.setToolTip("收起" if opened else "展开")
+
+    # 勾选/取消启用自定义背景图片
+    def toggle_background(self, checked: bool) -> None:
+        old = configure_data.get("启用自定义背景图片", False)
+        configure_data["启用自定义背景图片"] = bool(checked)
+        self._apply_background_enabled(checked)
+        # 勾选启用时自动展开子项，取消时不强制收起（由用户自行决定）
+        if checked and not self._background_panel_open:
+            self._background_panel_open = True
+            self.background_body.setVisible(True)
+            self._update_background_arrow()
+        self._refresh_player_background()
+        logger.info(f"自定义背景图片: {old} -> {checked}")
+
+    # 不透明度滑块变化
+    def change_background_opacity(self, value: int) -> None:
+        configure_data["背景图片不透明度"] = int(value)
+        self.background_opacity_slider.setToolTip(str(value))
+        self._refresh_player_background()
+        logger.info(f"背景图片不透明度: {value}")
+
+    # 选择背景图片
+    def choose_background_image(self) -> None:
+        options: QFileDialog.Options = QFileDialog.Options()
+        current = configure_data.get("背景图片路径", "")
+        start_dir = os.path.dirname(current) if current else Run_Directory
+        response: list = QFileDialog.getOpenFileName(
+            self, "选择背景图片", start_dir,
+            "图片 (*.png *.jpg *.jpeg *.bmp *.webp);; PNG (*.png);; 所有文件 (*.*)",
+            options=options)
+        if response[0]:
+            old = configure_data.get("背景图片路径", "")
+            configure_data["背景图片路径"] = response[0].replace("\\", "/")
+            self._refresh_background_path()
+            self._refresh_player_background()
+            logger.info(f"背景图片修改: {old} -> {response[0]}")
+        else:
+            logger.info("用户取消了背景图片选择")

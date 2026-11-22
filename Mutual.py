@@ -1,13 +1,13 @@
 import time
 import cv2
-import numpy as np
 import subprocess
-import tempfile
 import os
-import threading
-from PyQt5.QtCore import Qt, QObject, QTimer, QPropertyAnimation, pyqtSignal, QSize, QPoint, QEasingCurve
-from PyQt5.QtGui import QMouseEvent, QKeyEvent, QImage, QPixmap, QIcon
-from PyQt5.QtWidgets import QTableView, QFrame, QProgressBar, QLabel, QComboBox, QVBoxLayout, QHBoxLayout, QSplitter, QGraphicsOpacityEffect, QSizePolicy, QToolButton
+from PySide6.QtCore import Qt, QObject, QTimer, QPropertyAnimation, Signal, QSize, QSizeF, QPoint, QEasingCurve, QUrl
+from PySide6.QtGui import QMouseEvent, QKeyEvent, QPixmap, QIcon, QBrush, QColor, QFont, QImage, QPainter
+from PySide6.QtWidgets import QTableView, QFrame, QProgressBar, QLabel, QComboBox, QVBoxLayout, QHBoxLayout, \
+    QGraphicsOpacityEffect, QSizePolicy, QToolButton, QGraphicsView, QGraphicsScene, QSplitter
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
 from initialize import *
 
 
@@ -17,18 +17,18 @@ IMAGE_DIR = os.path.join(Run_Directory, 'Images')
 
 class ClickableLabel(QLabel):
     """可点击的图片标签 -> 用于居中的播放/暂停按钮。"""
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         # 接受左键按下，避免事件冒泡到父控件导致重复触发
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         # 在控件范围内左键弹起时触发点击
-        if event.button() == Qt.LeftButton and self.rect().contains(event.pos()):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.pos()):
             self.clicked.emit()
             event.accept()
         else:
@@ -41,7 +41,8 @@ class VideoWidget(QFrame):
     def __init__(self, parent: QObject = None) -> None:
         super().__init__(parent=parent)
         self.setObjectName("videoWidget")
-        self.setStyleSheet("#videoWidget { background-color: #000; }")
+        # 空白/播放结束时的底色用白色（黑底太沉闷）
+        self.setStyleSheet("#videoWidget { background-color: #FFFFFF; }")
         # 开启鼠标追踪，使鼠标移动（无需按键）即可触发 mouseMoveEvent
         self.setMouseTracking(True)
 
@@ -65,16 +66,16 @@ class VideoWidget(QFrame):
         # 视频标签
         self.video_label = QLabel(self)
         self.video_label.setObjectName("videoLabel")
-        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # 视频画面不拦截鼠标事件，交给父控件处理（进入/移动/点击）
-        self.video_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.video_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         # 居中按钮（图片形式）
         self.center_button = ClickableLabel(self)
         self.center_button.setObjectName("centerButton")
         self.center_button.setFixedSize(80, 80)
-        self.center_button.setAlignment(Qt.AlignCenter)
+        self.center_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.center_button.setPixmap(self.play_icon.pixmap(44, 44))
         self.center_button.setStyleSheet("background-color: rgba(255, 255, 255, 0.7); border-radius: 40px;")
         self.center_button.hide()
@@ -84,7 +85,7 @@ class VideoWidget(QFrame):
         # 截图按钮（居中播放/暂停图标的左侧）
         self.camera_button = ClickableLabel(self)
         self.camera_button.setFixedSize(64, 64)
-        self.camera_button.setAlignment(Qt.AlignCenter)
+        self.camera_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_button.setPixmap(self.camera_icon.pixmap(48, 48))
         self.camera_button.setStyleSheet("background-color: rgba(255, 255, 255, 0.6); border-radius: 32px;")
         self.camera_button.setToolTip("截图")
@@ -94,7 +95,7 @@ class VideoWidget(QFrame):
         # +10s 按钮（居中播放/暂停图标的右上）
         self.forward_button = ClickableLabel(self)
         self.forward_button.setFixedSize(64, 64)
-        self.forward_button.setAlignment(Qt.AlignCenter)
+        self.forward_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.forward_button.setPixmap(self.forward_icon.pixmap(52, 44))
         self.forward_button.setStyleSheet("background-color: rgba(255, 255, 255, 0.6); border-radius: 32px;")
         self.forward_button.setToolTip("快进 10 秒")
@@ -104,7 +105,7 @@ class VideoWidget(QFrame):
         # -10s 按钮（居中播放/暂停图标的右下）
         self.backward_button = ClickableLabel(self)
         self.backward_button.setFixedSize(64, 64)
-        self.backward_button.setAlignment(Qt.AlignCenter)
+        self.backward_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.backward_button.setPixmap(self.backward_icon.pixmap(52, 44))
         self.backward_button.setStyleSheet("background-color: rgba(255, 255, 255, 0.6); border-radius: 32px;")
         self.backward_button.setToolTip("快退 10 秒")
@@ -294,7 +295,7 @@ class VideoWidget(QFrame):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """重写鼠标单击事件 -> 点击视频区域任意位置播放/暂停。"""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.toggle_play_pause()
         super().mousePressEvent(event)
 
@@ -321,27 +322,27 @@ class VideoWidget(QFrame):
             player: VideoPlayer = configure_data["播放器地址"]
 
             # 根据对应的按键做对应的操作
-            if event.key() == Qt.Key_Left and (player.is_playing or player.paused):
+            if event.key() == Qt.Key.Key_Left and (player.is_playing or player.paused):
                 # 快退
                 player.set_position(player.current_position - configure_data["快退秒数"] * 1000)
-            elif event.key() == Qt.Key_Right and (player.is_playing or player.paused):
+            elif event.key() == Qt.Key.Key_Right and (player.is_playing or player.paused):
                 # 快进
                 player.set_position(player.current_position + configure_data["快进秒数"] * 1000)
-            elif event.key() == Qt.Key_Up and (player.is_playing or player.paused):
+            elif event.key() == Qt.Key.Key_Up and (player.is_playing or player.paused):
                 # 加音量
                 player.set_volume(player.volume + configure_data["加音量数"])
-            elif event.key() == Qt.Key_Down and (player.is_playing or player.paused):
+            elif event.key() == Qt.Key.Key_Down and (player.is_playing or player.paused):
                 # 减音量
                 player.set_volume(player.volume - configure_data["减音量数"])
-            elif event.key() == Qt.Key_Space and (player.is_playing or player.paused):
+            elif event.key() == Qt.Key.Key_Space and (player.is_playing or player.paused):
                 # 暂停、播放
                 self.toggle_play_pause()
-            elif event.key() == Qt.Key_M and (player.is_playing or player.paused):
+            elif event.key() == Qt.Key.Key_M and (player.is_playing or player.paused):
                 # 获取表格地址
                 table: QTableView = configure_data["表格页地址"]
                 # 添加标记
                 table.add_row([player.current_position, ""])
-            elif event.key() == Qt.Key_S and (player.is_playing or player.paused):
+            elif event.key() == Qt.Key.Key_S and (player.is_playing or player.paused):
                 # 获取表格、简介控件地址
                 table: QTableView = configure_data["表格页地址"]
                 blurb_frame: QFrame = configure_data["简介框架地址"]
@@ -397,90 +398,523 @@ class VideoWidget(QFrame):
             self.console.move(0, self.height())
 
 
+class MonoTimeLabel(QLabel):
+    """时长标签：强制等宽字体 + 固定宽度，保证刷新时不抖动。
+
+    时间文本每秒都在变（"00:00:01" -> "00:00:02"）。如果用程序全局字体
+    （用户可能选仿宋等比例字体），不同数字的宽度并不一致，每换一次数字
+    Qt 都要重新计算标签尺寸并重排，表现出来就是文字上下跳动、位置偏移。
+
+    这里做了三件事：
+    1. 使用等宽字体，任何数字组合宽度都相同；
+    2. 宽度固定为"最长形态"的宽度，之后不再随文本变化；
+    3. 设置 keep_mono_font 标记，让 initialize.set_font / set_size 跳过它，
+       否则用户改字体时会把它覆盖回比例字体。
+    """
+
+    # 供 initialize.set_font / set_size 识别并跳过
+    keep_mono_font = True
+
+    # 最长的显示形态，用于预留宽度
+    SAMPLE = "00:00:00/00:00:00"
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(self.SAMPLE, parent)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        font = QFont()
+        font.setFamilies(["Consolas", "Courier New", "DejaVu Sans Mono", "monospace"])
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        # 明确声明等宽特性，避免被任何"按字符宽度"的推算覆盖
+        font.setFixedPitch(True)
+        self.setFont(font)
+        self.refresh_time_width()
+
+    def refresh_time_width(self) -> None:
+        """按当前字体重新计算并固定宽度（字号变化后需要重算）。"""
+        self.ensurePolished()
+        fm = self.fontMetrics()
+        # boundingRect 包含字形侧边距；sizeHint 额外考虑内边距，取两者较大值
+        width = max(fm.boundingRect(self.SAMPLE).width(),
+                    self.sizeHint().width(),
+                    fm.horizontalAdvance(self.SAMPLE))
+        # 留一点余量给不同渲染后端的取整差异
+        self.setFixedWidth(width + 10)
+
+    def set_time(self, text: str) -> None:
+        """更新文本；内容没变就不动，避免无谓的重绘。"""
+        if self.text() != text:
+            self.setText(text)
+
+
 class Progress(QProgressBar):
-    """进度条控件"""
+    """进度条控件：支持单击跳转与按住拖动连续跳转。"""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._dragging = False
+
+    def _seek_to(self, x: int) -> None:
+        """按横向像素位置换算成视频时间点并跳转。"""
+        try:
+            player: VideoPlayer = configure_data["播放器地址"]
+            if player is None or player.duration <= 0:
+                return
+            width = max(1, self.width())
+            # 夹紧到控件范围内，避免拖出边界时越界
+            x = min(max(x, 0), width)
+            position = int(player.duration * x / width)
+            player.set_position(position)
+            # 立即更新进度条显示
+            self.setValue(position)
+            # 通知控制台更新时间标签
+            console = self.parent()
+            if isinstance(console, Console):
+                console.update_time_label()
+        except Exception as e:
+            logger.error(f"进度条跳转失败: {e}")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        """重写鼠标点击事件 -> 视频跳转"""
+        """按下：立即跳转并进入拖动状态。"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._seek_to(int(event.position().x()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """拖动：持续跟随鼠标位置跳转。"""
+        if self._dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+            self._seek_to(int(event.position().x()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """松开：结束拖动，并定位到最终位置。"""
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+            self._dragging = False
+            self._seek_to(int(event.position().x()))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+def probe_duration(path: str) -> float:
+    """用 ffprobe 读取媒体时长（秒），失败或读取不到返回 0。"""
+    kwargs = {}
+    if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+        kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+    try:
+        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                                 '-of', 'default=nw=1:nk=1', path],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                timeout=30, **kwargs)
+        return max(0.0, float(result.stdout.decode('utf-8', 'ignore').strip()))
+    except Exception:
+        return 0.0
+
+
+class _VideoResizeFilter(QObject):
+    """把视频容器的尺寸变化转交给 VideoPlayer。
+
+    Qt 的 installEventFilter 只接受 QObject，而 VideoPlayer 是普通 Python 类
+    （它需要在 QApplication 就绪前就能被构造），所以用这个小对象代劳。
+    """
+
+    def __init__(self, player) -> None:
+        super().__init__()
+        self._player = player
+
+    def eventFilter(self, obj, event) -> bool:
         try:
-            # 获取播放器地址
-            player: VideoPlayer = configure_data["播放器地址"]
-            # 计算点击位置对应的视频位置
-            if player.duration > 0:
-                position = int(player.duration * event.pos().x() / self.width())
-                player.set_position(position)
-                # 立即更新进度条显示
-                self.setValue(position)
-                # 通知控制台更新时间标签
-                console = self.parent()
-                if isinstance(console, Console):
-                    console.update_time_label()
-        except Exception as e:
+            if event.type() in (event.Type.Resize, event.Type.Show):
+                self._player._fit_video_window()
+        except Exception:
             pass
+        return False
 
 
 class VideoPlayer:
-    """视频播放器类"""
+
+    """视频播放器（Qt Multimedia 内核）
+
+    播放引擎完全交给 Qt 自带的 FFmpeg 多媒体后端：
+    - 音视频由同一个引擎解码，共享同一条时钟。声音和画面天然对齐，
+      不存在"两个时钟各走各的、越播越偏"的问题。
+    - 画面由 QVideoWidget 直接渲染（GPU/RHI 路径），4K 也不会把主线程拖慢；
+      帧数据不进入 Python，没有任何逐帧转换开销。
+    - 打开即解码（暂停态），用户点开就能看到首帧。
+    - 播放位置统一取 QMediaPlayer.position()，它是解码器给出的真实时间轴，
+      seek / 倍速 / 暂停后都不会跳变。
+
+    对外接口保持原样：has_media / set_media / play / pause / resume / stop /
+    replay / screenshot / set_position / set_volume / set_playback_rate /
+    set_video_output / update_frame / redraw_frame，以及
+    is_playing / paused / current_position / duration / volume 属性。
+    """
+
+    # 视频区域底色：无视频时白色（不刺眼），有视频时黑色
+    BG_IDLE = (255, 255, 255)   # 空载 / 播放结束 / 停止
+    BG_ACTIVE = (0, 0, 0)       # 已加载视频（含暂停）
 
     def __init__(self, parent=None):
         self.parent = parent
-        self.cap = None
-        self.is_playing = False
-        self.paused = False
-        self.current_position = 0
-        self.duration = 0
-        self.volume = 50
-        self.playback_rate = 1.0
-
-        # 音频相关
-        self.audio_process = None
-        self.audio_paused = False
-        self.audio_position = 0
         self.video_path = None
-        self.audio_temp = None        # 抽取出的音频临时文件路径
-        self.audio_rate = 1.0         # 该音频临时文件已应用的倍速
-        self.audio_loaded_path = None # 已加载进 pygame 的音频路径
-        self._temp_files = []         # 所有生成过的音频临时文件（用于清理）
-        self.current_frame = None     # 最近一帧（BGR），用于截图
-        self._play_start_clock = 0.0    # 同步基准：单调时钟
-        self._play_start_position = 0   # 同步基准：视频位置(ms)
+        self.playback_rate = 1.0
+        self._volume = 50
+        self._volume_before_mute = 50
+        self._opened = False
 
+        # 媒体对象（惰性创建，保证在 QApplication 就绪后）
+        self._player = None
+        self._audio = None
+        self._video_item = None       # QGraphicsVideoItem：真正渲染视频的图元
+        self._video_view = None       # QGraphicsView：承载图元的普通控件
+        self._video_scene = None      # 图元所在的图形场景
+        self._video_window = None     # 兼容字段（与 _video_view 相同）
+        self._video_host = None        # 承载画面的 VideoWidget
+        self._resize_filter = None     # 尺寸监听器（QObject，见 _VideoResizeFilter）
+
+        # ---- 平滑位置时钟 ----
+        # Qt 后端只在音视频包边界上发 positionChanged，间隔在 20~120ms 之间乱跳，
+        # 直接拿 position() 画进度条会一顿一顿的。这里以信号到达为“校钟点”，
+        # 两次信号之间用单调时钟按倍速外推，进度条就能匀速走动。
+        self._pos_anchor_ms = 0.0      # 校钟点的媒体位置
+        self._pos_anchor_clock = 0.0   # 校钟点对应的 perf_counter
+        self._pos_anchor_rate = 1.0    # 校钟时的倍速
+        self._pos_frozen = False       # 暂停/停止时冻结（不外推）
+
+        self._make_player()
+
+    # ------------------------------------------------------------------ 初始化
+    def _make_player(self) -> None:
+        """创建 QMediaPlayer 与音频输出。"""
+        p = QMediaPlayer()
+        ao = QAudioOutput()
+        p.setAudioOutput(ao)
+        try:
+            ao.setVolume(self._volume / 100.0)
+        except Exception:
+            pass
+        p.errorOccurred.connect(self._on_error)
+        p.mediaStatusChanged.connect(self._on_media_status)
+        p.playbackStateChanged.connect(self._on_state_changed)
+        p.positionChanged.connect(self._on_position_changed)
+        self._player = p
+        self._audio = ao
+
+    # ------------------------------------------------------------------ 平滑时钟
+    def _anchor_position(self) -> None:
+        """把当前真实位置记为新的校钟点。"""
+        self._pos_anchor_ms = float(self._player.position())
+        self._pos_anchor_clock = time.perf_counter()
+        self._pos_anchor_rate = float(self.playback_rate) or 1.0
+
+    def _on_position_changed(self, pos: int) -> None:
+        """后端位置更新：只作为校钟点，不直接用于显示。"""
+        self._pos_anchor_ms = float(pos)
+        self._pos_anchor_clock = time.perf_counter()
+        self._pos_anchor_rate = float(self.playback_rate) or 1.0
+
+    def smooth_position(self) -> int:
+        """返回平滑过的播放位置（毫秒）。
+
+        播放中：校钟点 + 已流逝时间 × 倍速；
+        其余情况：直接用真实位置，不外推。
+        """
+        try:
+            if self._pos_frozen or not self.is_playing:
+                return max(0, int(self._player.position()))
+            elapsed = (time.perf_counter() - self._pos_anchor_clock) * 1000.0
+            value = self._pos_anchor_ms + elapsed * self._pos_anchor_rate
+            # 上限保护：外推最多领先真实位置 250ms，
+            # 避免解码卡顿导致进度条跑到画面前面去。
+            real = float(self._player.position())
+            if value > real + 250.0:
+                value = real + 250.0
+            total = float(self.duration)
+            if total > 0:
+                value = min(value, total)
+            return max(0, int(value))
+        except Exception:
+            return max(0, int(self._player.position()))
+
+    def _on_error(self, error, error_string: str = "") -> None:
+        if error_string:
+            logger.error(f"播放器错误: {error_string}")
+
+    def _on_media_status(self, status) -> None:
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            logger.info("播放结束")
+            # 播放结束：画面区域恢复白底（黑底长时间停留太沉闷）
+            self._set_bg_active(False)
+            try:
+                self._video_host.sync_controls()
+            except Exception:
+                pass
+        elif status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+            # 时长要等媒体真正载入后才有值，这时才能设置进度条范围
+            if not self._opened:
+                self._opened = True
+            # 媒体已载入：画面区域使用黑底
+            self._set_bg_active(True)
+            self._notify_console()
+            try:
+                self._video_host.sync_controls()
+            except Exception:
+                pass
+
+    def _on_state_changed(self, state) -> None:
+        # 状态切换后重新校钟，避免用旧锚点外推出错误位置
+        self._anchor_position()
+        try:
+            if self._video_host is not None:
+                self._video_host.sync_controls()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------ 输出控件
     def set_video_output(self, video_widget):
-        """设置视频输出控件"""
-        self.video_widget = video_widget
+        """把 QVideoWidget 放进 VideoWidget，作为它的子控件铺满整个区域。
 
+        画面由 Qt Multimedia 的 GPU 渲染路径直接绘制，帧数据不进入 Python。
+
+        这里用 QGraphicsView + QGraphicsVideoItem 而不是 QVideoWidget：
+        QVideoWidget 是原生窗口（native window），在 Z 序上永远压在所有普通子控件
+        之上，居中播放/暂停、截图、±10s 这些按钮会被它整个盖住看不见。
+        QGraphicsVideoItem 是普通图元，和普通控件一样参与正常绘制与遮挡。
+        """
+        try:
+            self._video_host = video_widget
+            # 隐藏原来的 QLabel（画面改由图形视图显示）
+            try:
+                video_widget.video_label.hide()
+            except Exception:
+                pass
+
+            # 图形场景 + 视图（普通控件，可被其它按钮正常叠放）
+            scene = QGraphicsScene(video_widget)
+            # 场景底色随播放状态切换：无视频时为白色（不刺眼），有视频时转黑
+            scene.setBackgroundBrush(self._idle_brush())
+            view = QGraphicsView(scene, video_widget)
+            view.setFrameShape(QFrame.Shape.NoFrame)
+            view.setStyleSheet("background: transparent; border: none;")
+            view.viewport().setAutoFillBackground(False)
+            view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # 缩放采样改为平滑：720p 视频在中等窗口下会被缩到 60% 左右，
+            # 默认的快速采样在这个比例会产生明显锯齿/噪点。
+            # 该设置只影响绘制阶段的采样方式，不介入解码与音画同步。
+            view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            # 鼠标事件交给 VideoWidget 处理（进入/移动/点击）
+            view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            view.setGeometry(video_widget.rect())
+            view.lower()
+            view.show()
+
+            item = QGraphicsVideoItem()
+            item.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
+            scene.addItem(item)
+
+            self._video_scene = scene
+            self._video_view = view
+            self._video_item = item
+            self._video_window = view
+            self._player.setVideoOutput(item)
+            # 尺寸跟随视频区域。
+            # 注意：installEventFilter 要求过滤器必须是 QObject，
+            # 而 VideoPlayer 本身是普通类，所以用一个内部 QObject 代劳。
+            if self._resize_filter is None:
+                self._resize_filter = _VideoResizeFilter(self)
+            try:
+                video_widget.removeEventFilter(self._resize_filter)
+            except Exception:
+                pass
+            video_widget.installEventFilter(self._resize_filter)
+            self._fit_video_window()
+            # 画面层级放到最底，按钮都在它上面
+            self._raise_overlays()
+            # 未加载视频时保持白底
+            self._set_bg_active(False)
+        except Exception as e:
+            logger.error(f"设置视频输出失败: {e}")
+
+    def _raise_overlays(self) -> None:
+        """把交互控件提到画面之上（图形视图本身是普通控件，会被后创建的控件盖住）。"""
+        host = self._video_host
+        if host is None:
+            return
+        view = getattr(self, '_video_view', None)
+        if view is None:
+            return
+        try:
+            view.lower()
+            for name in ('center_button', 'camera_button', 'forward_button', 'backward_button'):
+                btn = getattr(host, name, None)
+                if btn is not None:
+                    btn.raise_()
+            console = getattr(host, 'console', None)
+            if console is not None:
+                console.raise_()
+        except Exception as e:
+            logger.error(f"调整控件层级失败: {e}")
+
+    def eventFilter(self, obj, event):
+        """兼容保留：实际过滤器是 _VideoResizeFilter。"""
+        try:
+            if obj is self._video_host and event.type() in (event.Type.Resize, event.Type.Show):
+                self._fit_video_window()
+        except Exception:
+            pass
+        return False
+
+    def _set_bg_active(self, active: bool) -> None:
+        """切换视频区域底色。
+
+        有视频时用黑底（黑边不刺眼）；没有视频时优先显示用户自定义背景图，
+        未启用或图片无效时回退到白色。
+        底色统一由图形场景的 backgroundBrush 负责，视图本身保持透明，
+        否则视图的白底会盖住场景里绘制的背景图。
+        """
+        color = self.BG_ACTIVE if active else self.BG_IDLE
+        try:
+            if self._video_scene is not None:
+                self._video_scene.setBackgroundBrush(self._idle_brush() if not active
+                                                     else QBrush(QColor(*color)))
+            if self._video_view is not None:
+                self._video_view.setStyleSheet("background: transparent; border: none;")
+                self._video_view.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+                self._video_view.viewport().setAutoFillBackground(False)
+                self._video_view.viewport().update()
+        except Exception as e:
+            logger.error(f"切换视频区域底色失败: {e}")
+
+    def _idle_brush(self) -> QBrush:
+        """构造空闲状态的背景画刷。
+
+        启用自定义背景图且图片可读时返回图片画刷，否则返回纯白画刷。
+
+        处理要点：
+        1. QBrush 的贴图不会缩放，必须自己把图片缩放到视频区域尺寸，
+           否则只会显示原图左上角一小块。
+        2. 保持宽高比缩放 + 平滑转换：图片按原比例缩放到能放进视频区域，
+           再居中摆放，四周留白；不拉伸变形、也不裁切内容。
+        3. 不透明度来自配置项"背景图片不透明度"（0-100）：
+           Qt 的画刷没有独立的透明度，这里把图片与白底预先合成一张
+           半透明效果的新图，再作为贴图画刷使用。
+        """
+        try:
+            if not configure_data.get("启用自定义背景图片", False):
+                return QBrush(QColor(*self.BG_IDLE))
+            path = configure_data.get("背景图片路径", "")
+            if not path:
+                return QBrush(QColor(*self.BG_IDLE))
+            if not os.path.isabs(path):
+                path = os.path.join(Run_Directory, path)
+            image = QImage(path)
+            if image.isNull():
+                logger.warning(f"背景图片无法读取: {path}")
+                return QBrush(QColor(*self.BG_IDLE))
+
+            # 目标尺寸 = 视频区域当前大小（尚未布局时给个兜底尺寸）
+            view = self._video_view
+            target_w, target_h = (view.width(), view.height()) if view is not None else (0, 0)
+            if target_w <= 0 or target_h <= 0:
+                target_w, target_h = 1280, 720
+
+            # 保持宽高比缩放 + 平滑转换：只限制"能放进视频区域"，
+            # 不留黑边也不变形；缩放后居中摆放，四周由白底填充。
+            fitted = image.scaled(
+                target_w, target_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+            offset_x = (target_w - fitted.width()) // 2
+            offset_y = (target_h - fitted.height()) // 2
+
+            opacity = max(0, min(100, int(configure_data.get("背景图片不透明度", 50))))
+            canvas = QPixmap(target_w, target_h)
+            canvas.fill(QColor(*self.BG_IDLE))
+            painter = QPainter(canvas)
+            painter.setOpacity(opacity / 100.0)
+            painter.drawImage(offset_x, offset_y, fitted)
+            painter.end()
+            return QBrush(canvas)
+        except Exception as e:
+            logger.error(f"构建背景画刷失败: {e}")
+            return QBrush(QColor(*self.BG_IDLE))
+
+    def refresh_background(self) -> None:
+        """背景设置变更后由外部调用：重新绘制空闲背景。
+
+        仅在没有视频时生效，播放中不打断画面。
+        """
+        if self.has_media():
+            return
+        self._set_bg_active(False)
+
+    def _fit_video_window(self) -> None:
+        """让画面视图铺满视频区域，并让视频图元等比缩放居中。"""
+        view = getattr(self, '_video_view', None)
+        item = getattr(self, '_video_item', None)
+        if view is None or self._video_host is None:
+            return
+        try:
+            rect = self._video_host.rect()
+            view.setGeometry(rect)
+            view.lower()
+            if item is not None:
+                # 图元尺寸 = 视图可视区域，由 KeepAspectRatio 保证画面不拉伸
+                item.setSize(QSizeF(rect.width(), rect.height()))
+            # 窗口尺寸变化后背景图需要按新尺寸重新合成
+            if self._video_scene is not None and not self.has_media():
+                self._video_scene.setBackgroundBrush(self._idle_brush())
+            self._raise_overlays()
+        except Exception as e:
+            logger.error(f"调整画面尺寸失败: {e}")
+
+    # ------------------------------------------------------------------ 媒体
     def has_media(self) -> bool:
         """是否已加载视频文件。"""
         return bool(self.video_path)
 
+    def _clear_source(self) -> None:
+        """清空当前媒体源。"""
+        self._player.setSource(QUrl())
+
+    def _open_media(self) -> None:
+        """让 Qt 载入当前文件（载入后处于暂停态，并显示首帧）。"""
+        self._opened = False
+        # 有视频了，画面区域转黑底
+        self._set_bg_active(True)
+        self._player.setSource(QUrl.fromLocalFile(self.video_path))
+        # 载入即暂停：解码出首帧显示，但不播放
+        self._player.pause()
+
     def set_media(self, media_url):
-        """设置媒体文件"""
-        # 释放之前的资源
-        self.stop()
+        """设置媒体文件。"""
         try:
+            self.stop()
             self.video_path = media_url.toLocalFile()
             logger.info(f"设置媒体文件: {self.video_path}")
-            self._open_video()
-            self._prepare_audio()
+            self._open_media()
+            self._opened = True
+            self._notify_console()
         except Exception as e:
             logger.error(f"设置媒体文件失败: {e}")
 
-    def _open_video(self):
-        """打开当前视频文件并获取时长信息。"""
-        self.cap = cv2.VideoCapture(self.video_path)
-        if not self.cap.isOpened():
-            logger.error(f"视频文件打开失败: {self.video_path}")
-            return
-        fps = self.cap.get(cv2.CAP_PROP_FPS)
-        frame_count = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        self.duration = int(frame_count / fps * 1000)
-        logger.info(f"视频已打开: {self.video_path}, 时长: {self.duration}ms, FPS: {fps}")
-        # 通知控制台更新进度条最大值
-        timer = configure_data.get("定时器地址")
-        if timer is not None and isinstance(getattr(timer, 'parent', lambda: None)(), Console):
-            console = timer.parent()
-            console.progress.setMaximum(self.duration)
-            console.update_time_label()
+    def _notify_console(self):
+        """通知控制台更新进度条范围。"""
+        try:
+            timer = configure_data.get("定时器地址")
+            if timer is not None and isinstance(getattr(timer, 'parent', lambda: None)(), Console):
+                console = timer.parent()
+                console.progress.setMaximum(max(0, self.duration))
+                console.update_time_label()
+        except Exception:
+            pass
 
     def replay(self):
         """从头重播当前视频。"""
@@ -488,36 +922,183 @@ class VideoPlayer:
             return
         try:
             logger.info(f"重播视频: {self.video_path}")
-            self.stop()
-            self._open_video()
-            self.current_position = 0
-            self.play()
+            self.set_position(0)
+            self._player.play()
         except Exception as e:
             logger.error(f"重播失败: {e}")
 
+    # ------------------------------------------------------------------ 状态
+    @property
+    def is_playing(self) -> bool:
+        try:
+            return self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        except Exception:
+            return False
+
+    @property
+    def paused(self) -> bool:
+        try:
+            return self._player.playbackState() == QMediaPlayer.PlaybackState.PausedState
+        except Exception:
+            return False
+
+    @property
+    def current_position(self) -> int:
+        try:
+            return max(0, int(self._player.position()))
+        except Exception:
+            return 0
+
+    @property
+    def duration(self) -> int:
+        try:
+            return max(0, int(self._player.duration()))
+        except Exception:
+            return 0
+
+    @property
+    def volume(self) -> int:
+        return self._volume
+
+    # ------------------------------------------------------------------ 控制
+    def play(self):
+        """开始播放（暂停中则恢复）。"""
+        if not self._player:
+            return
+        try:
+            self._pos_frozen = False
+            self._player.play()
+            self._anchor_position()
+            logger.info(f"开始播放: {self.video_path}")
+        except Exception as e:
+            logger.error(f"播放失败: {e}")
+
+    def resume(self):
+        """从暂停处恢复播放。"""
+        try:
+            self._pos_frozen = False
+            self._player.play()
+            self._anchor_position()
+        except Exception as e:
+            logger.error(f"恢复播放失败: {e}")
+
+    def pause(self):
+        """暂停播放（保留画面和位置）。"""
+        try:
+            self._player.pause()
+            # 暂停后冻结位置，不再按时钟外推
+            self._pos_frozen = True
+            logger.info(f"已暂停，位置: {self.current_position}ms")
+        except Exception as e:
+            logger.error(f"暂停失败: {e}")
+
+    def stop(self):
+        """停止播放并清空画面。"""
+        try:
+            self._pos_frozen = True
+            self._player.stop()
+            self._pos_anchor_ms = 0.0
+            self._pos_anchor_clock = time.perf_counter()
+            self._clear_source()
+            self._opened = False
+            self.video_path = None
+            # 没有视频了，画面区域恢复白底
+            self._set_bg_active(False)
+            if self._video_host is not None:
+                try:
+                    self._video_host.video_label.clear()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"停止播放失败: {e}")
+
+    def set_position(self, position):
+        """跳转到指定位置（毫秒）。"""
+        try:
+            total = self.duration
+            pos = int(position)
+            if total > 0:
+                pos = max(0, min(pos, total - 1))
+            pos = max(0, pos)
+            logger.info(f"设置播放位置: {self.current_position}ms -> {pos}ms")
+            self._player.setPosition(pos)
+            # 跳转后立刻重新校钟，否则平滑时钟会沿旧位置外推
+            self._pos_anchor_ms = float(pos)
+            self._pos_anchor_clock = time.perf_counter()
+            self._pos_anchor_rate = float(self.playback_rate) or 1.0
+        except Exception as e:
+            logger.error(f"设置播放位置失败: {e}")
+
+    def set_volume(self, volume):
+        """设置音量（0-100）。"""
+        try:
+            old = self._volume
+            self._volume = max(0, min(100, int(volume)))
+            logger.info(f"设置音量: {old} -> {self._volume}")
+            self._audio.setVolume(self._volume / 100.0)
+        except Exception as e:
+            logger.error(f"设置音量失败: {e}")
+
+    def set_playback_rate(self, rate):
+        """设置播放倍速（音视频同倍速，天然同步）。"""
+        try:
+            self.playback_rate = float(rate)
+            self._player.setPlaybackRate(self.playback_rate)
+            # 倍速变了，外推斜率也要跟着变
+            self._anchor_position()
+            logger.info(f"设置播放速率: {self.playback_rate}x")
+        except Exception as e:
+            logger.error(f"设置播放速率失败: {e}")
+
+    # ------------------------------------------------------------------ 画面
+    def update_frame(self):
+        """保持接口兼容：渲染由 Qt 自动完成，这里只同步控制台显示。"""
+        try:
+            if self._video_host is not None:
+                self._fit_video_window()
+        except Exception:
+            pass
+
+    def redraw_frame(self):
+        """窗口尺寸变化时调用：同步嵌入窗格大小。"""
+        self._fit_video_window()
+
     def screenshot(self):
-        """保存当前帧为截图（原视频尺寸），返回保存路径。"""
-        if not self.video_path or self.current_frame is None:
-            logger.warning("截图失败: 无视频帧可截图")
+        """保存当前帧为截图，返回保存路径。
+
+        QVideoWidget 的帧不进 Python，因此用视频文件 + 当前时间点重解一帧，
+        效果与截取当前画面一致，还能拿到原始分辨率。
+        """
+        if not self.video_path:
+            logger.warning("截图失败: 无视频文件")
             return None
         try:
-            # 截图保存根目录（相对路径基于程序运行目录）
+            position = self.current_position / 1000.0
+            cap = cv2.VideoCapture(self.video_path)
+            if not cap.isOpened():
+                logger.error("截图失败: 视频无法打开")
+                return None
+            cap.set(cv2.CAP_PROP_POS_MSEC, position * 1000)
+            ok, frame = cap.read()
+            fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+            cap.release()
+            if not ok or frame is None:
+                logger.warning("截图失败: 无法解出该时间点的画面")
+                return None
+
             base_dir = configure_data.get("默认截图保存路径", "./Images/Screenshot/")
             if not os.path.isabs(base_dir):
                 base_dir = os.path.normpath(os.path.join(Run_Directory, base_dir))
-            # 以文件指纹作为子目录
-            fingerprint_dir = fingerprint(self.video_path)
-            sub_dir = os.path.join(base_dir, fingerprint_dir)
+            sub_dir = os.path.join(base_dir, fingerprint(self.video_path))
             os.makedirs(sub_dir, exist_ok=True)
-            # 帧数与时间戳
-            frame_no = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) if self.cap else 0
+            frame_no = int(position * fps) if fps > 0 else 0
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             path = os.path.join(sub_dir, f"{timestamp}_{frame_no}.png")
             i = 1
             while os.path.exists(path):
                 path = os.path.join(sub_dir, f"{timestamp}_{frame_no}_{i}.png")
                 i += 1
-            if cv2.imwrite(path, self.current_frame):
+            if cv2.imwrite(path, frame):
                 logger.info(f"截图已保存: {path}")
                 return path
             logger.error("截图保存失败: cv2.imwrite 返回 False")
@@ -526,314 +1107,7 @@ class VideoPlayer:
             logger.error(f"截图失败: {e}")
             return None
 
-    def _ensure_mixer(self) -> bool:
-        """初始化 pygame.mixer，返回是否可用。"""
-        try:
-            import pygame
-            if not pygame.mixer.get_init():
-                try:
-                    pygame.mixer.init(frequency=44100, size=-16, channels=2)
-                except Exception:
-                    pygame.mixer.init()
-            return pygame.mixer.get_init() is not None
-        except Exception as e:
-            return False
 
-    def _atempo_filter(self, rate: float) -> str:
-        """把任意倍速转成 atempo 滤镜链（atempo 单段限 0.5~2.0）。"""
-        if rate <= 0:
-            rate = 1.0
-        parts = []
-        while rate > 2.0:
-            parts.append('atempo=2.0')
-            rate /= 2.0
-        while rate < 0.5:
-            parts.append('atempo=0.5')
-            rate /= 0.5
-        parts.append(f'atempo={rate:.6f}')
-        return ','.join(parts)
-
-    def _cleanup_audio_file(self) -> None:
-        """删除所有音频临时文件。"""
-        for f in getattr(self, '_temp_files', []):
-            if f and os.path.exists(f):
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
-        self._temp_files = []
-        self.audio_temp = None
-        self.audio_rate = 1.0
-        self.audio_loaded_path = None
-
-    def _extract_audio_async(self) -> None:
-        """后台线程：用 ffmpeg 把当前视频音频抽成临时 WAV（带当前倍速）。"""
-        video_path = self.video_path
-        rate = self.playback_rate
-        if not video_path:
-            return
-        self._audio_gen = getattr(self, '_audio_gen', 0) + 1
-        gen = self._audio_gen
-
-        def worker():
-            temp_file = os.path.join(tempfile.gettempdir(), f"mctl_{os.getpid()}_{gen}_{int(time.time() * 1000)}.wav")
-            try:
-                cmd = ['ffmpeg', '-y', '-i', video_path, '-vn', '-ac', '2', '-ar', '44100',
-                       '-af', self._atempo_filter(rate), temp_file]
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
-                   timeout=600, creationflags=subprocess.CREATE_NO_WINDOW)
-                if gen != self._audio_gen:
-                    # 已有更新的提取任务，丢弃本次结果
-                    if os.path.exists(temp_file):
-                        os.remove(temp_file)
-                    return
-                if os.path.exists(temp_file) and os.path.getsize(temp_file) > 0:
-                    self.audio_temp = temp_file
-                    self.audio_rate = rate
-                    if hasattr(self, '_temp_files'):
-                        self._temp_files.append(temp_file)
-                elif os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except Exception as e:
-                pass
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _prepare_audio(self) -> None:
-        """为当前视频准备音频（清理旧音频并后台抽取）。"""
-        self._cleanup_audio_file()
-        self._extract_audio_async()
-
-    def start_audio(self, position=0):
-        """从指定位置(毫秒)播放音频；音频未就绪时忽略，稍后由 update_frame 补启动。"""
-        if not self.video_path or not self.audio_temp or not os.path.exists(self.audio_temp):
-            return
-        try:
-            if not self._ensure_mixer():
-                return
-            import pygame
-            if self.audio_loaded_path != self.audio_temp:
-                pygame.mixer.music.load(self.audio_temp)
-                self.audio_loaded_path = self.audio_temp
-            pygame.mixer.music.set_volume(self.volume / 100.0)
-            # 关键：WAV 已按 audio_rate 变速，定位位置需按比例换算
-            start_sec = max(0, position / 1000.0 / self.audio_rate)
-            pygame.mixer.music.play(0, start=start_sec)
-        except Exception as e:
-            pass
-
-
-
-    def play(self):
-        """播放视频"""
-        if self.cap and not self.is_playing and not self.paused:
-            try:
-                self.is_playing = True
-                self.paused = False
-
-                # 记录同步基准（单调时钟，与音频对齐）
-                self._play_start_clock = time.perf_counter()
-                self._play_start_position = self.current_position
-
-                # 启动定时器更新帧（固定短间隔，追帧由 update_frame 完成）
-                self.timer = QTimer(self.parent)
-                self.timer.timeout.connect(self.update_frame)
-                self.timer.start(16)
-
-                # 启动音频（音频未就绪时由 update_frame 补启动）
-                self.start_audio(self.current_position)
-            except Exception as e:
-                self.is_playing = False
-
-    def resume(self):
-        """恢复播放"""
-        if self.cap and not self.is_playing and self.paused:
-            try:
-                self.is_playing = True
-                self.paused = False
-
-                # 记录同步基准（从当前位置继续）
-                self._play_start_clock = time.perf_counter()
-                self._play_start_position = self.current_position
-
-                # 启动定时器更新帧
-                self.timer = QTimer(self.parent)
-                self.timer.timeout.connect(self.update_frame)
-                self.timer.start(16)
-
-                # 从当前位置恢复音频
-                self.start_audio(self.current_position)
-            except Exception as e:
-                self.is_playing = False
-
-    def pause(self):
-        """暂停播放"""
-        if self.is_playing:
-            try:
-                self.paused = True
-                self.is_playing = False
-
-                # 停止定时器
-                if hasattr(self, 'timer'):
-                    self.timer.stop()
-
-                # 暂停音频（保留播放位置）
-                try:
-                    import pygame
-                    if pygame.mixer.get_init() and self.audio_loaded_path:
-                        pygame.mixer.music.pause()
-                except Exception:
-                    pass
-            except Exception as e:
-                pass
-
-    def stop(self):
-        """停止播放"""
-        try:
-            self.is_playing = False
-            self.paused = False
-            self.current_position = 0
-
-            # 停止定时器
-            if hasattr(self, 'timer'):
-                self.timer.stop()
-
-            # 释放视频
-            if self.cap:
-                self.cap.release()
-                self.cap = None
-
-            # 停止音频
-            try:
-                import pygame
-                if pygame.mixer.get_init():
-                    pygame.mixer.music.stop()
-            except Exception:
-                pass
-
-            # 清空视频显示
-            if hasattr(self, 'video_widget') and self.video_widget:
-                self.video_widget.video_label.setPixmap(QPixmap())
-        except Exception as e:
-            pass
-
-    def update_frame(self):
-        """更新视频帧 -> 以单调时钟为基准与音频对齐，落后时补帧追上。"""
-        if not self.cap or not self.is_playing:
-            return
-
-        try:
-            # 计算应到达的视频位置（时钟基准，与音频同步）
-            elapsed = (time.perf_counter() - self._play_start_clock) * 1000
-            target = self._play_start_position + elapsed * self.playback_rate
-            target = max(0, min(target, self.duration))
-
-            # 视频落后则补帧追上（最多 240 帧，防止异常跑飞）
-            frame = None
-            guard = 0
-            while self.current_position < target and guard < 240:
-                ret, f = self.cap.read()
-                if not ret:
-                    self.stop()
-                    return
-                frame = f
-                self.current_frame = f
-                self.current_position = int(self.cap.get(cv2.CAP_PROP_POS_MSEC))
-                guard += 1
-
-            # 显示最新一帧
-            if frame is not None:
-                self._display_frame(frame)
-
-            # 音频抽取完成后，若正在播放则补启动
-            if self.audio_temp and self.audio_loaded_path != self.audio_temp:
-                self.start_audio(self.current_position)
-        except Exception as e:
-            pass
-
-    def _display_frame(self, frame):
-        """把 BGR 帧按视频区域宽度缩放后显示（宽度与区域一致）。"""
-        if frame is None:
-            return
-        if not hasattr(self, 'video_widget') or not self.video_widget:
-            return
-        if not hasattr(self.video_widget, 'video_label'):
-            return
-        label = self.video_widget.video_label
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image)
-        # 按视频区域宽度缩放（保持宽高比）
-        if label.width() > 0:
-            pixmap = pixmap.scaledToWidth(label.width(), Qt.SmoothTransformation)
-        label.setPixmap(pixmap)
-
-    def redraw_frame(self):
-        """按当前视频区域尺寸重新绘制当前帧（区域大小改变时调用）。"""
-        if self.current_frame is not None:
-            self._display_frame(self.current_frame)
-
-    def set_position(self, position):
-        """设置播放位置"""
-        if self.cap:
-            try:
-                # 确保位置在有效范围内
-                position = max(0, min(position, self.duration))
-                old_pos = self.current_position
-                self.cap.set(cv2.CAP_PROP_POS_MSEC, position)
-                self.current_position = position
-                logger.info(f"设置播放位置: {old_pos}ms -> {position}ms")
-
-                # 更新音频位置并重置同步基准
-                if self.is_playing:
-                    self._play_start_clock = time.perf_counter()
-                    self._play_start_position = position
-                    self.start_audio(position)
-            except Exception as e:
-                logger.error(f"设置播放位置失败: {e}")
-
-    def set_volume(self, volume):
-        """设置音量"""
-        try:
-            old_volume = self.volume
-            self.volume = max(0, min(100, volume))
-            logger.info(f"设置音量: {old_volume} -> {self.volume}")
-            # 实时调整音量，无需重启音频
-            try:
-                import pygame
-                if pygame.mixer.get_init():
-                    pygame.mixer.music.set_volume(self.volume / 100.0)
-            except Exception:
-                pass
-        except Exception as e:
-            logger.error(f"设置音量失败: {e}")
-
-    def set_playback_rate(self, rate):
-        """设置播放速率"""
-        try:
-            if rate == self.playback_rate:
-                return
-            old_rate = self.playback_rate
-            self.playback_rate = rate
-            logger.info(f"设置播放速率: {old_rate}x -> {rate}x")
-
-            # 重置同步基准（视频从当前位置按新速率继续）
-            if self.is_playing:
-                self._play_start_clock = time.perf_counter()
-                self._play_start_position = self.current_position
-
-            # 停止当前音频，按新速率重新抽取；就绪后由 update_frame 自动接上
-            try:
-                import pygame
-                if pygame.mixer.get_init():
-                    pygame.mixer.music.stop()
-            except Exception:
-                pass
-            self._extract_audio_async()
-        except Exception as e:
-            logger.error(f"设置播放速率失败: {e}")
 
 
 class Console(QFrame):
@@ -879,11 +1153,11 @@ class Console(QFrame):
             "QProgressBar {"
             "   border: none;"
             "   background-color: #e0e0e0;"
-            "   border-radius: 3px;"
+            "   border-radius: 6px;"
             "}"
             "QProgressBar::chunk {"
             "   background-color: #0078d4;"
-            "   border-radius: 3px;"
+            "   border-radius: 6px;"
             "}"
         )
         # 开启鼠标追踪，使在控制台上移动也能刷新显示计时
@@ -909,8 +1183,8 @@ class Console(QFrame):
         self.replay_button.setToolTip("重播")
         self.replay_button.setAutoRaise(True)
 
-        # 时长标签
-        self.length_label = QLabel("0:00/0:00", self)
+        # 时长标签（等宽字体 + 固定宽度，刷新时不抖动）
+        self.length_label = MonoTimeLabel(self)
 
         # 倍速下拉框
         self.speed_spinner = QComboBox(self)
@@ -920,7 +1194,9 @@ class Console(QFrame):
         # 进度条
         self.progress = Progress(self)
         self.progress.setTextVisible(False)
-        self.progress.setFixedHeight(6)
+        self.progress.setFixedHeight(12)
+        self.progress.setRange(0, 1)  # 初始最小范围，避免 QProgressBar 默认 -1「忙」态
+        self.progress.setValue(0)
 
         # 控制按钮行
         controls = QHBoxLayout()
@@ -941,8 +1217,21 @@ class Console(QFrame):
 
         # 定时器
         self.timer = QTimer(self)
+        # 进度条每帧都要重画，必须用精确计时器：
+        # 默认的 CoarseTimer 精度只有 ±5% 且受系统调度压制，
+        # 实测回调间隔会在 14~129ms 之间乱跳，进度条看起来就一顿一顿的。
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self.update_length)
         configure_data["定时器地址"] = self.timer
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """点击控制台空白处不播放/暂停视频。
+
+        控制台是进度条的父控件，文字标签、按钮之间的空隙都属于它。
+        这些点击不该穿透到视频区域触发播放/暂停，否则很容易误触。
+        进度条、按钮等子控件会自己处理点击，不会走到这里。
+        """
+        event.accept()
 
     def sync_play_button(self) -> None:
         """根据播放状态更新播放/暂停按钮图标。"""
@@ -961,12 +1250,12 @@ class Console(QFrame):
             if getattr(player, 'duration', 0) > 0:
                 if self.progress.maximum() != player.duration:
                     self.progress.setMaximum(player.duration)
-                self.progress.setValue(player.current_position)
+                # 用平滑位置：后端 position() 只在包边界更新，直接画会一顿一顿
+                self.progress.setValue(max(0, min(player.smooth_position(), player.duration)))
                 self.update_time_label()
             else:
                 self.progress.setValue(0)
-                self.length_label.setText("0:00/0:00")
-                self.length_label.adjustSize()
+                self.length_label.set_time(MonoTimeLabel.SAMPLE)
             # 同步居中图标与播放/暂停按钮（如播放结束、状态变化）
             parent = self.parent()
             if hasattr(parent, 'sync_controls'):
@@ -975,19 +1264,23 @@ class Console(QFrame):
             pass
 
     def update_time_label(self):
-        """更新时间标签"""
+        """更新时间标签。
+
+        宽度已经由 MonoTimeLabel 固定，这里只更新文本，
+        不做任何尺寸调整，避免每秒钟一次的布局重排。
+        """
         try:
             player = configure_data.get("播放器地址")
             if player is None:
                 return
             if getattr(player, 'duration', 0) > 0:
-                current_time = time.strftime("%H:%M:%S", time.gmtime(player.current_position / 1000))
+                pos = player.smooth_position()
+                current_time = time.strftime("%H:%M:%S", time.gmtime(pos / 1000))
                 total_time = time.strftime("%H:%M:%S", time.gmtime(player.duration / 1000))
-                self.length_label.setText(f"{current_time}/{total_time}")
-                self.length_label.adjustSize()
+                text = f"{current_time}/{total_time}"
             else:
-                self.length_label.setText("0:00/0:00")
-                self.length_label.adjustSize()
+                text = MonoTimeLabel.SAMPLE
+            self.length_label.set_time(text)
         except Exception as e:
             pass
 
@@ -1048,17 +1341,24 @@ class Mutual(QFrame):
         configure_data["播放列表地址"]: object = self  # 兼容旧代码
 
     def add_media(self, media_content):
-        """添加媒体"""
+        """添加媒体并开始播放。
+
+        兼容传入 QUrl；旧版 QMediaContent 已不在 Qt6 中，故只在确实带有
+        canonicalUrl 时才做转换。
+        """
         try:
-            # 检查media_content的类型
-            if hasattr(media_content, 'canonicalUrl'):
-                # 如果是QMediaContent对象
+            if isinstance(media_content, QUrl):
+                url = media_content
+            elif hasattr(media_content, 'canonicalUrl'):
                 url = media_content.canonicalUrl()
-                self.player.set_media(url)
-                # 自动开始播放
-                self.play()
+            else:
+                logger.warning(f"不支持的媒体对象: {type(media_content)}")
+                return
+            self.player.set_media(url)
+            # 自动开始播放
+            self.play()
         except Exception as e:
-            pass
+            logger.error(f"添加媒体失败: {e}")
 
     def play(self):
         """播放"""

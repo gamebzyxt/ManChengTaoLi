@@ -1,7 +1,7 @@
 import time
-from PyQt5.QtCore import QObject, Qt, QModelIndex
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QContextMenuEvent, QIcon
-from PyQt5.QtWidgets import QVBoxLayout, QFrame, QLabel, QTextEdit, QTableView, QHeaderView, QMenu, QAction
+from PySide6.QtCore import QObject, Qt, QModelIndex
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QContextMenuEvent, QIcon, QAction
+from PySide6.QtWidgets import QVBoxLayout, QFrame, QLabel, QTextEdit, QTableView, QHeaderView, QMenu
 from initialize import *
 
 
@@ -133,7 +133,7 @@ class PointerTable(QTableView):
         for row in range(len(datas)):
             # 创建item，第一列设置为只读状态
             item_0: QStandardItem = QStandardItem(str(datas[row][0]))
-            item_0.setFlags(item_0.flags() & ~Qt.ItemIsEditable)
+            item_0.setFlags(item_0.flags() & ~Qt.ItemFlag.ItemIsEditable)
             item_0.setEditable(False)
             # 设置提示文本为正常时间格式
             item_0.setToolTip(time.strftime('%H:%M:%S', time.gmtime(datas[row][0] / 1000)))
@@ -153,7 +153,7 @@ class PointerTable(QTableView):
         row: int = self.model.rowCount()
         # 第一列设置为只读状态
         item_0: QStandardItem = QStandardItem(str(data[0]))
-        item_0.setFlags(item_0.flags() & ~Qt.ItemIsEditable)
+        item_0.setFlags(item_0.flags() & ~Qt.ItemFlag.ItemIsEditable)
         item_0.setEditable(False)
         # 设置提示文本为正常时间格式
         item_0.setToolTip(time.strftime('%H:%M:%S', time.gmtime(data[0] / 1000)))
@@ -168,8 +168,8 @@ class PointerTable(QTableView):
         视频跳转。
         :param index: 模型下标，不需要传递。
         """
-        # 判断是否是第一列双击
-        if index.column():
+        # 只响应第一列（时间列）双击：column()==0 时继续执行，否则忽略
+        if index.column() != 0:
             return
         # 获取帧数
         frame_rate: int = int(self.model.index(index.row(), 0).data())
@@ -212,7 +212,7 @@ class PointerTable(QTableView):
             # 添加动作
             menu.addAction(delete_action)
             # 进入菜单栏事件循环，并设置鼠标右击时的全局坐标为菜单栏位置
-            menu.exec_(event.globalPos())
+            menu.exec(event.globalPos())
         else:
             return
 

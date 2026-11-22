@@ -2,8 +2,8 @@ import os
 import sys
 import psutil
 import json
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QMessageBox
-from PyQt5.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QWidget, QMessageBox
+from PySide6.QtGui import QIcon
 from HandBook import *
 from Mutual import *
 from initialize import *
@@ -151,7 +151,7 @@ def show_already_running_dialog() -> None:
             box.setWindowIcon(QIcon(icon_path))
     except Exception:
         pass
-    box.exec_()
+    box.exec()
 
 
 # 播放外部视频
@@ -195,7 +195,7 @@ def main():
     logger.info("=" * 50)
     logger.info("程序启动")
 
-    # 先创建应用程序类（便于显示提示弹窗）
+    # 创建应用程序（Qt6 已默认启用高 DPI 缩放，无需手动声明）
     app = QApplication(sys.argv)
 
     # 检查程序是否已运行
@@ -219,7 +219,7 @@ def main():
             play_external_video(app, man_cheng, second_parameter)
 
     # 进入事件循环
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 # 调试
